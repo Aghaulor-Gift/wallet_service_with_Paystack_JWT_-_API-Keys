@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+enum TransactionType {
+  DEPOSIT
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum ApiPermission {
+  DEPOSIT
+  TRANSFER
+  READ
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  name         String?
+  googleId     String?       @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  wallet       Wallet?
+  apiKeys      ApiKey[]
+  transactions Transaction[]
+}
+
+model Wallet {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  walletNumber String   @unique  // used in /wallet/transfer
+  balance      Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id])
+  outgoingTxns Transaction[] @relation("SenderWallet")
+  incomingTxns Transaction[] @relation("ReceiverWallet")
+}
+
+model ApiKey {
+  id          String         @id @default(uuid())
+  userId      String
+  name        String
+  key         String         @unique    // your generated secret
+  permissions ApiPermission[]
+  expiresAt   DateTime
+  revoked     Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+
+  user        User           @relation(fields: [userId], references: [id])
+
+  @@index([userId, revoked])
+  @@index([key])
+}
+
+model Transaction {
+  id              String            @id @default(uuid())
+  userId          String
+  type            TransactionType
+  status          TransactionStatus
+  amount          Int
+  reference       String?           @unique  // Paystack ref for deposits
+  senderWalletId  String?           // for transfers
+  receiverWalletId String?          // for transfers
+  metadata        Json?
+  createdAt       DateTime          @default(now())
+  paidAt          DateTime?
+
+  user            User              @relation(fields: [userId], references: [id])
+  senderWallet    Wallet?           @relation("SenderWallet", fields: [senderWalletId], references: [id])
+  receiverWallet  Wallet?           @relation("ReceiverWallet", fields: [receiverWalletId], references: [id])
+
+  @@index([userId, type])
+}
