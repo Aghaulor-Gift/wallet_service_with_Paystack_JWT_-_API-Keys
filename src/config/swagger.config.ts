@@ -4,7 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 export function setupSwagger(app: INestApplication) {
   const config = new DocumentBuilder()
     .setTitle('PayVault Wallet Service')
-    .setDescription('API documentation for authentication, wallet, payments & API keys.')
+    .setDescription('API documentation for authentication, wallet, payments.')
     .setVersion('1.0')
     .addBearerAuth(
       {
@@ -15,18 +15,10 @@ export function setupSwagger(app: INestApplication) {
       },
       'jwt-auth',
     )
-    .addApiKey(
-      {
-        type: 'apiKey',
-        name: 'x-api-key',
-        in: 'header',
-        description: 'Service-to-Service API Key',
-      },
-      'api-key',
-    )
     .build();
 
   const doc = SwaggerModule.createDocument(app, config);
+
   SwaggerModule.setup('docs', app, doc, {
     swaggerOptions: {
       persistAuthorization: true,

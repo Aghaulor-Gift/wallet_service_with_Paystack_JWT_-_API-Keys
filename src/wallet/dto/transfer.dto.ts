@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsInt, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer'; // <<< Import this
 
 export class TransferDto {
   @ApiProperty({
@@ -13,7 +14,8 @@ export class TransferDto {
     description: 'Amount to transfer (in Kobo)',
     example: 3000,
   })
-  @IsInt()
+  @Type(() => Number) // <<< CRITICAL FIX: Convert string to number
+  @IsInt() 
   @Min(1)
   amount: number;
 }

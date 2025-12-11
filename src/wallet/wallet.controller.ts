@@ -1,59 +1,78 @@
-import { Controller, Post, Get, Body, Req } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Query, UseGuards, HttpStatus, HttpCode } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ApiTags, ApiSecurity, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { WalletService } from './wallet.service';
+import { DepositDto } from './dto/deposit.dto';
+import { TransferDto } from './dto/transfer.dto';
+import { StatusQueryDto } from './dto/status-query.dto';
+import { AuthUnionGuard } from '../common/guards/auth-union.guard';
+import { Permissions } from '../common/decorators/permissions.decorator';  
 
+
+@ApiTags('Wallet')
+@UseGuards(AuthUnionGuard) 
 @Controller('wallet')
 export class WalletController {
   constructor(private readonly walletService: WalletService) {}
 
-  // Deposit
   @Post('deposit')
-  @Throttle({
-    short: { limit: 10, ttl: 60 }
-  })
-  startDeposit(@Req() req, @Body() body) {
-    return this.walletService.startDeposit(req.auth.userId, body.amount);
+  @Permissions('deposit')
+  @Throttle({ short: { limit: 10, ttl: 60 } })
+  @ApiSecurity('JWT-Auth')
+  @ApiSecurity('ApiKey-Auth') 
+  @ApiBody({ type: DepositDto })
+  @ApiResponse({ status: 200, description: 'Paystack initiation successful.' })
+  startDeposit(@Req() req, @Body() dto: DepositDto) {
+    
+    return this.walletService.startDeposit(req.user.id, dto.amount);
   }
 
-  // Webhook
-	@Post('paystack/webhook')
-	@Throttle({
-    short: { limit: 60, ttl: 60 } // allow many webhook calls safely
-  })
-	async handleWebhook(
-			@Req() req: Request,
-		) {
-			const signature = req.headers['x-paystack-signature'] as string;
-			const payload = req.body;
+  // ---  Paystack Webhook
+  @Post('paystack/webhook')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { limit: 60, ttl: 60 } })
+  async handleWebhook(@Req() req: any) {
+    const rawBody = req.rawBody; 
+    const signature = req.headers['x-paystack-signature'] as string;
 
-			return this.walletService.processPaystackWebhook(payload, signature);
-		}
+    // The service must verify the signature against rawBody, then parse it.
+    return this.walletService.processPaystackWebhook(rawBody, signature);
+  }
 
-
-  // Transfer
+  // --- 3. Wallet Transfer 
   @Post('transfer')
-  @Throttle({
-    short: { limit: 5, ttl: 60 }
-  })
-  transfer(@Req() req, @Body() dto) {
-    return this.walletService.transfer(req.auth.userId, dto.wallet_number, dto.amount);
+  @Permissions('transfer')
+  @Throttle({ short: { limit: 5, ttl: 60 } })
+  @ApiSecurity('JWT-Auth')
+  @ApiSecurity('ApiKey-Auth')
+  @ApiBody({ type: TransferDto })
+  @ApiResponse({ status: 200, description: 'Transfer completed.' })
+  transfer(@Req() req, @Body() dto: TransferDto) {
+    
+    return this.walletService.transfer(req.user.id, dto.wallet_number, dto.amount);
   }
 
-  // Balance
+  // --- 4. Get Wallet Balance --
   @Get('balance')
-  @Throttle({
-    short: { limit: 20, ttl: 60 }
-  })
+  @Permissions('read')
+  @Throttle({ short: { limit: 20, ttl: 60 } })
+  @ApiSecurity('JWT-Auth')
+  @ApiSecurity('ApiKey-Auth')
+  @ApiResponse({ status: 200, description: 'Current wallet balance.' })
   getBalance(@Req() req) {
-    return this.walletService.getBalance(req.auth.userId);
+
+    return this.walletService.getBalance(req.user.id);
   }
 
-  // Transactions
+  // --- 5. Transaction History
   @Get('transactions')
-  @Throttle({
-    short: { limit: 20, ttl: 60 }
-  })
-  getTxs(@Req() req) {
-    return this.walletService.getTransactions(req.auth.userId);
+  @Permissions('read') 
+  @Throttle({ short: { limit: 20, ttl: 60 } })
+  @ApiSecurity('JWT-Auth')
+  @ApiSecurity('ApiKey-Auth')
+  @ApiResponse({ status: 200, description: 'List of transactions.' })
+  getTransactions(@Req() req, @Query() query: StatusQueryDto) {
+    
+    return this.walletService.getTransactions(req.user.id, query.status);
   }
 }

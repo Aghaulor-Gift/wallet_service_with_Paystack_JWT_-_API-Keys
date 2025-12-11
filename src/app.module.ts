@@ -17,6 +17,7 @@ import { AuthUnionGuard } from './common/guards/auth-union.guard';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+
     ThrottlerModule.forRoot({
       throttlers: [
         {
@@ -36,6 +37,7 @@ import { AuthUnionGuard } from './common/guards/auth-union.guard';
   ],
 
   controllers: [AppController],
+
   providers: [
     AppService,
     {

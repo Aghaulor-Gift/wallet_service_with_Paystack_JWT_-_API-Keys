@@ -1,3 +1,5 @@
+// src/wallet/wallet.service.ts
+
 import {
   BadRequestException,
   Injectable,
@@ -6,6 +8,9 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { PaystackService } from '../paystack/paystack.service';
 import { TransactionStatus, TransactionType } from '@prisma/client';
+// 🚫 Removed: import { CreateKeyDto, ExpiryDuration } from '../dtos/keys.dto'; 
+// 🚫 Removed: import * as crypto from 'crypto';
+// 🚫 Removed: private readonly MAX_ACTIVE_KEYS = 5;
 
 @Injectable()
 export class WalletService {
@@ -13,6 +18,9 @@ export class WalletService {
     private readonly prisma: PrismaService,
     private readonly paystack: PaystackService,
   ) {}
+
+  // 🚫 Removed: API KEY MANAGEMENT methods (createApiKey, rolloverApiKey) 
+  // --- CORE WALLET OPERATIONS ---
 
   /** Start a deposit flow */
   async startDeposit(userId: string, amount: number) {
@@ -45,19 +53,18 @@ export class WalletService {
   }
 
   /** Handle Paystack webhook */
-  async processPaystackWebhook(payload: any, signature: string) {
+  async processPaystackWebhook(rawBody: Buffer, signature: string) {
     if (!signature) {
       throw new BadRequestException('Missing Paystack signature header');
     }
+    
+    this.paystack.verifyWebhookSignature(rawBody, signature);
 
-    // 1️⃣ Validate the webhook signature
-    this.paystack.verifyWebhookSignature(payload, signature);
-
+    const payload = JSON.parse(rawBody.toString('utf8'));
     const event = payload.event;
 
     if (event !== 'charge.success' && event !== 'charge.failed') {
-      // Ignore non-payment events
-      return { received: true };
+      return { received: true }; 
     }
 
     const data = payload.data;
@@ -73,13 +80,11 @@ export class WalletService {
 
     if (!txn) throw new NotFoundException('Transaction not found');
 
-    // Idempotency
     if (txn.status === TransactionStatus.SUCCESS) {
-      return { received: true, message: 'Already processed' };
+      return { received: true, message: 'Already processed' }; 
     }
 
-    // Optional validation: amount consistency
-    const paystackAmount = data.amount;
+    const paystackAmount = data.amount; 
     if (typeof paystackAmount === 'number' && paystackAmount !== txn.amount) {
       throw new BadRequestException('Amount mismatch for transaction');
     }
@@ -89,13 +94,11 @@ export class WalletService {
         ? TransactionStatus.SUCCESS
         : TransactionStatus.FAILED;
 
-    // Parse paid_at safely
     const paidAt =
       data.paid_at && !isNaN(Date.parse(data.paid_at))
         ? new Date(data.paid_at)
         : new Date();
 
-    /** Atomic database update */
     await this.prisma.$transaction(async (tx) => {
       await tx.transaction.update({
         where: { id: txn.id },
@@ -119,7 +122,7 @@ export class WalletService {
     return { received: true, status: newStatus };
   }
 
-  /** Check transaction status */
+  /** Check deposit status */
   async getDepositStatus(reference: string) {
     if (!reference) throw new BadRequestException('Reference is required');
 
@@ -193,9 +196,27 @@ export class WalletService {
     });
   }
 
-  async getTransactions(userId: string) {
+  /** Get transactions with optional status filter */
+  async getTransactions(userId: string, status?: string) {
+    let prismaStatus: TransactionStatus | undefined = undefined;
+
+    if (status) {
+      const upper = status.toUpperCase();
+
+      if (!Object.values(TransactionStatus).includes(upper as TransactionStatus)) {
+        throw new BadRequestException(
+          `Invalid status. Must be one of: ${Object.values(TransactionStatus).join(', ')}`
+        );
+      }
+
+      prismaStatus = upper as TransactionStatus;
+    }
+
     const txns = await this.prisma.transaction.findMany({
-      where: { userId },
+      where: {
+        userId,
+        ...(prismaStatus ? { status: prismaStatus } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -204,10 +225,12 @@ export class WalletService {
       type: t.type.toLowerCase(),
       amount: t.amount,
       status: t.status.toLowerCase(),
+      reference: t.reference,
+      createdAt: t.createdAt,
     }));
   }
 
-  /** Create wallet if missing */
+  /** Create wallet if not exists */
   private async ensureWallet(userId: string) {
     let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
 
@@ -223,7 +246,6 @@ export class WalletService {
     return wallet;
   }
 
-  /** Generate 12–13 digit wallet number */
   private generateWalletNumber(): string {
     return (
       '4' +
